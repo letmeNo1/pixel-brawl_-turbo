@@ -6,6 +6,7 @@ import {
   ENERGY_GAIN_HIT, ENERGY_GAIN_TAKE_HIT, ENERGY_GAIN_BLOCK, BLOCK_DRAIN_RATE,
   DODGE_DURATION, DODGE_COOLDOWN, JUGGLE_DAMAGE_CAP, WAKEUP_INVULNERABILITY
 } from './constants';
+import { soundManager } from './SoundManager';
 
 interface SpriteData {
   images: HTMLImageElement[];
@@ -29,6 +30,12 @@ export class Fighter {
       // Reset hitbox on state change
       if (newState !== FighterState.ATTACK && newState !== FighterState.ULTIMATE) {
           this.hitbox = { offset: { x: 0, y: 0 }, width: 0, height: 0 };
+          this.isAttacking = false;
+      }
+      
+      // Reset combo step if leaving attack
+      if (newState !== FighterState.ATTACK) {
+          this.attackComboStep = 0;
       }
     }
   }
@@ -52,16 +59,19 @@ export class Fighter {
   
   facing: 'left' | 'right' = 'right';
   isAttacking: boolean = false;
-  attackComboIndex: number = 0; // For 3-step combo
+  attackComboStep: number = 0; // 0=None, 1=First(Frame 0-1), 2=Second(Frame 2-3)
   
   // Timers & Mechanics
   actionTimer: number = 0;
   hurtTimer: number = 0;
   dodgeTimer: number = 0;
   dodgeCooldown: number = 0;
-  blockTimer: number = 0; // To track how long held (guard break)
+  blockTimer: number = 0; // Keeping for legacy reference or future use
   invulnerabilityTimer: number = 0; // Wakeup protection
   
+  // New: Guard Mechanics
+  accumulatedBlockDamage: number = 0;
+
   // Skill Mechanics
   skillStartup: number = 0;
   newProjectiles: Projectile[] = [];
@@ -73,6 +83,9 @@ export class Fighter {
   airDamageTaken: number = 0; // Juggle protection
   
   hitbox: Hitbox = { offset: { x: 0, y: 0 }, width: 0, height: 0 };
+  
+  // Visual Effects
+  hitMarker: { x: number, y: number, rotation: number, scale: number } | null = null;
 
   constructor(x: number, color: string, facing: 'left' | 'right', characterId: string, assetTimestamp: number = 0) {
     this.position = { x, y: 0 };
@@ -98,7 +111,7 @@ export class Fighter {
       'idle': 1,
       'run': 5,
       'jump': 1,
-      'attack': 3, // Changed to 3 frames for combo
+      'attack': 4, // 4 frames for combo (Hit 1: 1-2, Hit 2: 3-4)
       'hurt': 1, 
       'block': 1, 
       'skill': 2, // Changed to 2 frames
@@ -154,11 +167,17 @@ export class Fighter {
     }
 
     if (this.state === FighterState.BLOCK) {
-        ctx.fillStyle = 'rgba(59, 130, 246, 0.3)'; 
-        ctx.fillRect(-this.width/2 - 10, -this.height/2 - 10, this.width + 20, this.height + 20);
+        // Change color based on accumulation
+        const guardStress = Math.min(1, this.accumulatedBlockDamage / 200);
+        ctx.fillStyle = `rgba(${59 + (200 * guardStress)}, ${130 - (100 * guardStress)}, 246, 0.3)`; 
+        
+        // Lower the block shield for crouch height
+        const blockH = this.height * 0.7; 
+        const blockY = -this.height/2 + (this.height * 0.3);
+        ctx.fillRect(-this.width/2 - 10, blockY - 10, this.width + 20, blockH + 20);
         ctx.strokeStyle = '#60a5fa';
         ctx.lineWidth = 3;
-        ctx.strokeRect(-this.width/2 - 10, -this.height/2 - 10, this.width + 20, this.height + 20);
+        ctx.strokeRect(-this.width/2 - 10, blockY - 10, this.width + 20, blockH + 20);
     }
 
     if (this.state === FighterState.ULTIMATE) {
@@ -168,7 +187,7 @@ export class Fighter {
     
     // Skill charging visual
     if (this.skillStartup > 0 && this.state === FighterState.SKILL) {
-        ctx.shadowBlur = 10 + (25 - this.skillStartup); // Increasing glow
+        ctx.shadowBlur = 10 + (45 - this.skillStartup); // Increasing glow
         ctx.shadowColor = '#fbbf24';
     }
 
@@ -178,11 +197,11 @@ export class Fighter {
     switch (this.state) {
         case FighterState.WALK: spriteKey = 'run'; currentFramesHold = 15; break;
         case FighterState.JUMP: spriteKey = 'jump'; break;
-        case FighterState.ATTACK: spriteKey = 'attack'; currentFramesHold = 15; break;
+        case FighterState.ATTACK: spriteKey = 'attack'; currentFramesHold = 8; break; // Fast attack animation
         case FighterState.ULTIMATE: spriteKey = 'ultimate'; currentFramesHold = 18; break;
         case FighterState.HURT: spriteKey = 'hurt'; break;
         case FighterState.DEAD: spriteKey = 'hurt'; break;
-        case FighterState.BLOCK: spriteKey = 'block'; break;
+        case FighterState.BLOCK: spriteKey = 'crouch'; break; // Use crouch sprite for block
         case FighterState.SKILL: spriteKey = 'skill'; currentFramesHold = 20; break;
         case FighterState.SUMMON: spriteKey = 'summon'; currentFramesHold = 18; break;
         case FighterState.CROUCH: spriteKey = 'crouch'; break;
@@ -193,19 +212,40 @@ export class Fighter {
     let spriteData = this.sprites[spriteKey];
     
     // Fallbacks
+    let isCrouchFallback = false;
+    
     if (spriteKey === 'block' && this.isMissing(spriteData)) spriteData = this.sprites['idle'];
     if (spriteKey === 'summon' && this.isMissing(spriteData)) spriteData = this.sprites['attack'];
     if (spriteKey === 'skill' && this.isMissing(spriteData)) spriteData = this.sprites['attack'];
-    if (spriteKey === 'crouch' && this.isMissing(spriteData)) spriteData = this.sprites['idle']; // Fallback crouch
+    if (spriteKey === 'crouch' && this.isMissing(spriteData)) {
+        spriteData = this.sprites['idle']; // Fallback crouch
+        isCrouchFallback = true;
+    }
 
     const frames = spriteData ? spriteData.images : [];
     const totalFrames = frames.length;
 
     if (totalFrames > 1) {
-        // Special logic for ATTACK: do not cycle automatically, frames are manually set in attack()
-        if (this.state !== FighterState.ATTACK) {
-            this.framesElapsed++;
-            if (this.framesElapsed % currentFramesHold === 0) {
+        this.framesElapsed++;
+
+        if (this.state === FighterState.ATTACK) {
+             // Custom Attack Animation Logic
+             if (this.framesElapsed % currentFramesHold === 0) {
+                 if (this.attackComboStep === 1) {
+                     // Combo 1: Frames 0 -> 1
+                     if (this.currentFrame < 1) {
+                         this.currentFrame++;
+                     }
+                 } else if (this.attackComboStep === 2) {
+                     // Combo 2: Frames 2 -> 3
+                     if (this.currentFrame < 3) {
+                         this.currentFrame++;
+                     }
+                 }
+             }
+        } else {
+             // Standard cycling
+             if (this.framesElapsed % currentFramesHold === 0) {
                 this.currentFrame = (this.currentFrame + 1) % totalFrames;
             }
         }
@@ -245,8 +285,8 @@ export class Fighter {
              drawX = -contentCX * scaleX;
              drawY = -contentCY * scaleY;
              
-             // Adjust for Crouch (squash effect)
-             if (this.state === FighterState.CROUCH && spriteKey !== 'crouch') {
+             // Adjust for Crouch (squash effect) only if falling back to idle
+             if ((this.state === FighterState.CROUCH || this.state === FighterState.BLOCK) && isCrouchFallback) {
                 const squashFactor = 0.7;
                 drawH *= squashFactor;
                 drawY += this.height * 0.3; // Visual shift down
@@ -254,7 +294,7 @@ export class Fighter {
         } else {
             // --- LEGACY FALLBACK LOGIC ---
             // Crouch visual adjustment if reusing idle sprite
-            if (this.state === FighterState.CROUCH && spriteKey !== 'crouch') {
+            if ((this.state === FighterState.CROUCH || this.state === FighterState.BLOCK) && isCrouchFallback) {
                 drawH = this.height * 0.7;
                 drawY = -this.height / 2 + (this.height * 0.3);
             }
@@ -268,18 +308,36 @@ export class Fighter {
             drawH 
         );
         
-        if (this.state === FighterState.HURT) {
-            ctx.globalCompositeOperation = 'source-atop';
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-            ctx.fillRect(drawX, drawY, drawW, drawH);
-        }
     } else {
         // Fallback rectangle
         ctx.fillStyle = this.state === FighterState.HURT ? '#fff' : this.color;
         let h = this.height;
         let y = -this.height / 2;
-        if (this.state === FighterState.CROUCH) { h *= 0.6; y += this.height * 0.4; }
+        if (this.state === FighterState.CROUCH || this.state === FighterState.BLOCK) { h *= 0.6; y += this.height * 0.4; }
         ctx.fillRect(-this.width / 2, y, this.width, h);
+    }
+
+    // NEW: Red Arc Damage Visual
+    if (this.state === FighterState.HURT && this.hitMarker) {
+        ctx.save();
+        // Since we are already translated to center + shake, we move by hitMarker offset
+        // hitMarker coordinates are relative to the fighter's center (0,0 here)
+        ctx.translate(this.hitMarker.x, this.hitMarker.y);
+        ctx.rotate(this.hitMarker.rotation);
+        ctx.scale(this.hitMarker.scale, this.hitMarker.scale);
+
+        ctx.beginPath();
+        // Draw a simple arc/slash
+        ctx.arc(0, 0, 30, Math.PI * 0.2, Math.PI * 0.8);
+        
+        ctx.lineCap = 'round';
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = '#ff0000';
+        ctx.strokeStyle = '#ef4444'; // Bright Red
+        ctx.lineWidth = 6;
+        ctx.stroke();
+
+        ctx.restore();
     }
 
     ctx.restore(); 
@@ -289,7 +347,8 @@ export class Fighter {
         ctx.fillStyle = '#60a5fa';
         ctx.font = '10px "Press Start 2P"';
         ctx.textAlign = 'center';
-        ctx.fillText('BLOCK', this.position.x + this.width/2, this.position.y - 30);
+        // Lower text slightly
+        ctx.fillText('BLOCK', this.position.x + this.width/2, this.position.y - 10);
         ctx.restore();
     }
 
@@ -412,17 +471,13 @@ export class Fighter {
         return; // Skip other state logic during dodge
     }
 
-    // Block Energy Drain
-    if (this.state === FighterState.BLOCK) {
-        this.energy -= BLOCK_DRAIN_RATE;
-        this.blockTimer++;
-        // Guard Break: Energy empty or held too long (3s = 180 frames)
-        if (this.energy <= 0 || this.blockTimer > 180) {
-            this.state = FighterState.HURT; // Guard break stun
-            this.hurtTimer = 60;
-            this.energy = 0;
-        }
-    } else {
+    // Guard Damage Decay (Recover when not blocking)
+    if (this.state !== FighterState.BLOCK && this.accumulatedBlockDamage > 0) {
+        this.accumulatedBlockDamage = Math.max(0, this.accumulatedBlockDamage - 0.5);
+    }
+    
+    // Reset block timer logic (Removed old 3s check)
+    if (this.state !== FighterState.BLOCK) {
         this.blockTimer = 0;
     }
 
@@ -439,11 +494,13 @@ export class Fighter {
                 this.jumpBuffer = 0;
                 this.state = FighterState.JUMP;
                 this.jumpCount = 1;
+                soundManager.playJump();
             } else if (this.jumpCount < 2) {
                 // Double Jump
                 this.velocity.y = -13; // Slightly lower velocity for air jump
                 this.jumpCount = 2;
                 this.jumpBuffer = 0;
+                soundManager.playJump();
                 
                 // Reset animation frame to restart jump visual
                 if (this.state === FighterState.JUMP) {
@@ -469,8 +526,7 @@ export class Fighter {
         if (this.actionTimer <= 0) {
             this.isAttacking = false;
             this.state = FighterState.IDLE;
-            // Reset combo if idle for too long? 
-            // Simplified: we only increment on press, reset is not strictly needed as it loops 0,1,2
+            this.attackComboStep = 0; // Reset Combo
         }
     }
     else if (![FighterState.BLOCK, FighterState.DODGE, FighterState.DEAD, FighterState.CROUCH].includes(this.state)) {
@@ -514,24 +570,38 @@ export class Fighter {
   }
 
   attack() {
-    const canAttack = [FighterState.IDLE, FighterState.WALK, FighterState.JUMP, FighterState.CROUCH].includes(this.state);
+    const allowedStates = [FighterState.IDLE, FighterState.WALK, FighterState.JUMP, FighterState.CROUCH];
+    // Allow chaining if already attacking and in step 1, provided the animation hasn't just ended
+    const canChain = this.state === FighterState.ATTACK && this.attackComboStep === 1 && this.actionTimer > 0;
     
-    if (canAttack) {
-        this.gainEnergy(2); // +2 on attack
-        this.isAttacking = true;
-        this.state = FighterState.ATTACK;
-        this.actionTimer = 15; // Set duration for one swing
-        
-        // Manual frame step
-        this.currentFrame = this.attackComboIndex;
-        this.attackComboIndex = (this.attackComboIndex + 1) % 3;
-        
-        this.hitbox = { offset: { x: 50, y: 20 }, width: 80, height: 40 };
-        
-        if (this.isGrounded) {
-             this.velocity.x = this.facing === 'right' ? 2 : -2;
-        }
+    if (allowedStates.includes(this.state)) {
+        this.performAttack(1);
+    } else if (canChain) {
+        this.performAttack(2);
     }
+  }
+
+  private performAttack(step: number) {
+      soundManager.playAttack();
+      this.gainEnergy(2); 
+      this.isAttacking = true;
+      this.state = FighterState.ATTACK;
+      this.attackComboStep = step;
+      
+      // Step 1: Start at frame 0 (play 0->1)
+      // Step 2: Start at frame 2 (play 2->3)
+      this.currentFrame = step === 1 ? 0 : 2;
+      this.framesElapsed = 0;
+      
+      this.actionTimer = 25; // Duration window for the attack
+      this.hitbox = { offset: { x: 50, y: 20 }, width: 80, height: 40 };
+      
+      // Reset isAttacking to true to allow damage re-check in main loop if it was cleared by a previous hit
+      this.isAttacking = true;
+
+      if (this.isGrounded) {
+           this.velocity.x = this.facing === 'right' ? 2 : -2;
+      }
   }
 
   triggerSkill() {
@@ -540,13 +610,14 @@ export class Fighter {
       if (!canSkill) return;
       
       this.state = FighterState.SKILL;
-      // Total animation lock 70 frames, startup 25 frames
-      this.actionTimer = 70; 
-      this.skillStartup = 25; 
+      // Total animation lock 90 frames, startup 45 frames
+      this.actionTimer = 90; 
+      this.skillStartup = 45; 
       this.velocity.x = 0; 
   }
 
   private fireRangedSkill() {
+      soundManager.playSkill();
       const dir = this.facing === 'right' ? 1 : -1;
       const startX = this.facing === 'right' 
         ? this.position.x + this.width 
@@ -579,6 +650,7 @@ export class Fighter {
     const canSummon = [FighterState.IDLE, FighterState.WALK].includes(this.state);
     if (!canSummon || this.energy < SUMMON_COST) return null;
 
+    soundManager.playSkill();
     this.energy -= SUMMON_COST;
     this.state = FighterState.SUMMON;
     this.actionTimer = 25; 
@@ -611,10 +683,9 @@ export class Fighter {
     if (this.state === FighterState.HURT || this.state === FighterState.DEAD || this.state === FighterState.ATTACK || this.state === FighterState.ULTIMATE || this.state === FighterState.SKILL || this.state === FighterState.SUMMON || this.state === FighterState.DODGE || !this.isGrounded) return;
     
     if (isBlocking) {
-        if (this.energy > 0) {
-            this.state = FighterState.BLOCK;
-            this.velocity.x = 0; 
-        }
+        // Removed: if (this.energy > 0)
+        this.state = FighterState.BLOCK;
+        this.velocity.x = 0; 
     } else {
         if (this.state === FighterState.BLOCK) {
             this.state = FighterState.IDLE;
@@ -647,18 +718,56 @@ export class Fighter {
     this.energy = Math.min(this.maxEnergy, this.energy + amount);
   }
 
-  takeDamage(amount: number) {
+  takeDamage(amount: number, type: 'melee' | 'ranged' | 'heavy' = 'melee') {
     // Invulnerability checks
     if (this.state === FighterState.DEAD || this.state === FighterState.DODGE || this.invulnerabilityTimer > 0) return;
 
     if (this.state === FighterState.BLOCK) {
-        this.gainEnergy(ENERGY_GAIN_BLOCK); // +3 on block
-        this.health -= Math.max(1, Math.floor(amount * 0.1)); // Chip damage (10% damage, 90% blocked)
-        this.actionTimer = 5; 
-        // Block pushback
-        const knockbackDir = this.facing === 'right' ? -1 : 1;
-        this.velocity.x = knockbackDir * 4;
+        // 1. Accumulate Block Damage
+        this.accumulatedBlockDamage += amount;
+
+        // 2. Check Threshold (200% of 100 HP = 200)
+        if (this.accumulatedBlockDamage > 200) { 
+             soundManager.playGuardBreak();
+             
+             // Guard Broken: Take Full Damage + Stun
+             this.health -= amount;
+             this.gainEnergy(ENERGY_GAIN_TAKE_HIT);
+             this.state = FighterState.HURT;
+             this.hurtTimer = 60; // Long stun
+             this.accumulatedBlockDamage = 0; // Reset
+             
+             // Visuals for break
+             this.hitMarker = {
+                x: 0, y: 0, rotation: 0, scale: 1.5
+            };
+            const knockbackDir = this.facing === 'right' ? -1 : 1;
+            this.velocity.x = knockbackDir * 5;
+            this.velocity.y = -5;
+            this.isGrounded = false;
+
+        } else {
+            // Successful Block
+            soundManager.playBlock();
+            this.gainEnergy(ENERGY_GAIN_BLOCK); 
+            
+            // Take 10% damage
+            const reducedDamage = Math.floor(amount * 0.1); 
+            if (reducedDamage > 0) this.health -= reducedDamage;
+
+            this.actionTimer = 5; 
+            const knockbackDir = this.facing === 'right' ? -1 : 1;
+            this.velocity.x = knockbackDir * 4;
+        }
     } else {
+        if (type === 'ranged') {
+            soundManager.playRangedHit();
+        } else if (type === 'heavy') {
+            soundManager.playHeavyHit();
+        } else {
+            soundManager.playHit();
+        }
+
         this.health -= amount;
         this.gainEnergy(ENERGY_GAIN_TAKE_HIT); // +1 on hit
 
@@ -674,6 +783,15 @@ export class Fighter {
 
         this.state = FighterState.HURT;
         this.hurtTimer = 35; 
+
+        // Generate Hit Marker (Random Red Slash Visual)
+        // Position relative to center
+        this.hitMarker = {
+            x: (Math.random() - 0.5) * (this.width * 0.5),
+            y: (Math.random() - 0.5) * (this.height * 0.5),
+            rotation: (Math.random() * 2) - 1, // Random rotation
+            scale: 0.8 + Math.random() * 0.4
+        };
 
         // Knockback physics
         const knockbackDir = this.facing === 'right' ? -1 : 1;

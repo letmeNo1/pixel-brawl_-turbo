@@ -38,17 +38,16 @@ export const WAKEUP_INVULNERABILITY = 120; // 2s
 // Coordinates are based on the original image pixels. (0,0) is Top-Left.
 // Set these to null to use the full image size without auto-centering.
 export const SPRITE_CROP_CONFIG = {
+  // Example configuration (Uncomment and adjust values):
   P1: {
     blX: 878, blY: 326, // Bottom-Left (Left-most pixel, Bottom-most pixel)
     trX: 289, trY: 770  // Top-Right (Right-most pixel, Top-most pixel)
   },
 
-
-  P2: null
-  // P2: {
-  //   blX: 20, blY: 60,
-  //   trX: 50, trY: 10
-  // }
+  P2: {
+    blX: 878, blY: 326, // Bottom-Left (Left-most pixel, Bottom-most pixel)
+    trX: 289, trY: 770  // 
+  }
 };
 
 export const PLATFORMS: Platform[] = [

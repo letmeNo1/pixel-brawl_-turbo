@@ -118,9 +118,14 @@ const App: React.FC = () => {
       f1HitboxY + f1.hitbox.height > f2.position.y
     ) {
       let damage = 3; // Reduced from 5
-      if (f1.state === FighterState.ULTIMATE) damage = 25; // Reduced from 35
+      let type: 'melee' | 'ranged' | 'heavy' = 'melee';
+
+      if (f1.state === FighterState.ULTIMATE) {
+          damage = 25; // Reduced from 35
+          type = 'heavy';
+      }
       
-      f2.takeDamage(damage);
+      f2.takeDamage(damage, type);
       // Energy gain handled inside Fighter class now for attacking
       f1.isAttacking = false; 
     }
@@ -137,6 +142,13 @@ const App: React.FC = () => {
     // AI decides to block if player is attacking close by
     if (player.isAttacking && dist < 120 && cpu.isGrounded && Math.random() < 0.6) {
         cpu.block(true);
+        // User requested inverted block facing. 
+        // Previously: cpu.facing = cpuForward
+        // Now: cpu.facing = cpuBack (faces away? or corrects to face enemy if assets inverted?)
+        // Assuming user wants opposite of previous logic.
+        // Previous logic: cpuForward ('right' if cpu is left of player).
+        // New logic: cpuBack ('left' if cpu is left of player).
+        cpu.facing = cpuBack as 'right' | 'left'; 
         return;
     } else {
         cpu.block(false);
@@ -259,6 +271,13 @@ const App: React.FC = () => {
           // Block is now active on holding DOWN
           p1.block(isHoldingDown);
 
+          // Auto-turn when blocking
+          if (p1.state === FighterState.BLOCK) {
+              // INVERTED: User requested opposite direction.
+              // If P2 is Left of P1. P1 faces Right.
+              p1.facing = p2.position.x < p1.position.x ? 'right' : 'left';
+          }
+
           // No movement while blocking
           if (p1.state !== FighterState.BLOCK) {
             p1.velocity.x = 0;
@@ -276,6 +295,12 @@ const App: React.FC = () => {
 
             // Block is now active on holding DOWN
             p2.block(isHoldingDown);
+
+            // Auto-turn when blocking
+            if (p2.state === FighterState.BLOCK) {
+                // INVERTED: User requested opposite direction.
+                p2.facing = p1.position.x < p2.position.x ? 'right' : 'left';
+            }
 
             if (p2.state !== FighterState.BLOCK) {
                 p2.velocity.x = 0;
@@ -334,7 +359,7 @@ const App: React.FC = () => {
             p.y - p.height/2 < opponent.position.y + opponent.height
         ) {
             if (opponent.state !== FighterState.DEAD && opponent.state !== FighterState.DODGE) {
-                opponent.takeDamage(p.damage);
+                opponent.takeDamage(p.damage, 'ranged');
                 if (p.type === 'clone') opponent.velocity.x = (p.facing) * 8;
             }
             projectilesRef.current.splice(i, 1);
