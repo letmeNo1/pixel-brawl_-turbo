@@ -19,7 +19,6 @@ export const ROUND_TIME = 90; // Seconds
 export const MAX_ENERGY = 300; // Increased to allow 3 bars
 export const ULT_COST = 100;
 export const SKILL_COST = 0; 
-export const SUMMON_COST = 30; 
 
 // Gains & Drains
 export const ENERGY_GAIN_HIT = 2;
@@ -71,7 +70,6 @@ export const P1_KEYS = {
   JUMP: 'k',       // Jump Action
   TELEPORT: 'l',   // Teleport
   SKILL_RANGED: 'i', // Ranged Skill (Energy Ball)
-  SKILL2: 'u',     // Summon Clone
   ULT: 'o',        // Ultimate
   DODGE: ' '       // Spacebar
 };
@@ -84,7 +82,6 @@ export const P2_KEYS = {
   ATTACK: '1',
   JUMP: '2', 
   SKILL_RANGED: '4',
-  SKILL2: '6', 
   TELEPORT: '3',
   ULT: '5',
   DODGE: '0'

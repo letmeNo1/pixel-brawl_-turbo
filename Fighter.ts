@@ -2,7 +2,7 @@
 import { FighterState, Position, Velocity, Hitbox, Platform, Projectile } from './types';
 import { 
   GRAVITY, GROUND_Y, FIGHTER_WIDTH, FIGHTER_HEIGHT, WORLD_WIDTH,
-  MAX_ENERGY, ULT_COST, SKILL_COST, SUMMON_COST,
+  MAX_ENERGY, ULT_COST, SKILL_COST,
   ENERGY_GAIN_HIT, ENERGY_GAIN_TAKE_HIT, ENERGY_GAIN_BLOCK, BLOCK_DRAIN_RATE,
   DODGE_DURATION, DODGE_COOLDOWN, JUGGLE_DAMAGE_CAP, WAKEUP_INVULNERABILITY
 } from './constants';
@@ -116,7 +116,6 @@ export class Fighter {
       'block': 1, 
       'skill': 2, // Changed to 2 frames
       'ultimate': 1,
-      'summon': 1,
       'crouch': 1 // Will need asset or fallback
     };
 
@@ -203,7 +202,6 @@ export class Fighter {
         case FighterState.DEAD: spriteKey = 'hurt'; break;
         case FighterState.BLOCK: spriteKey = 'crouch'; break; // Use crouch sprite for block
         case FighterState.SKILL: spriteKey = 'skill'; currentFramesHold = 20; break;
-        case FighterState.SUMMON: spriteKey = 'summon'; currentFramesHold = 18; break;
         case FighterState.CROUCH: spriteKey = 'crouch'; break;
         case FighterState.DODGE: spriteKey = 'run'; break; // Reuse run for dodge visual
         default: spriteKey = 'idle';
@@ -215,7 +213,6 @@ export class Fighter {
     let isCrouchFallback = false;
     
     if (spriteKey === 'block' && this.isMissing(spriteData)) spriteData = this.sprites['idle'];
-    if (spriteKey === 'summon' && this.isMissing(spriteData)) spriteData = this.sprites['attack'];
     if (spriteKey === 'skill' && this.isMissing(spriteData)) spriteData = this.sprites['attack'];
     if (spriteKey === 'crouch' && this.isMissing(spriteData)) {
         spriteData = this.sprites['idle']; // Fallback crouch
@@ -484,7 +481,7 @@ export class Fighter {
     // Jump Buffer & Logic
     if (this.jumpBuffer > 0) {
         this.jumpBuffer--;
-        const lockedStates = [FighterState.HURT, FighterState.DEAD, FighterState.SKILL, FighterState.SUMMON, FighterState.ULTIMATE];
+        const lockedStates = [FighterState.HURT, FighterState.DEAD, FighterState.SKILL, FighterState.ULTIMATE];
         
         if (!lockedStates.includes(this.state)) {
             if (this.isGrounded) {
@@ -522,7 +519,7 @@ export class Fighter {
              }
         }
     } 
-    else if ([FighterState.ATTACK, FighterState.SKILL, FighterState.ULTIMATE, FighterState.SUMMON].includes(this.state)) {
+    else if ([FighterState.ATTACK, FighterState.SKILL, FighterState.ULTIMATE].includes(this.state)) {
         if (this.actionTimer <= 0) {
             this.isAttacking = false;
             this.state = FighterState.IDLE;
@@ -645,42 +642,9 @@ export class Fighter {
       this.newProjectiles.push(createProj(0, -90));
   }
 
-  triggerSummon(): Projectile | null {
-    // Summon Clone (Instant)
-    const canSummon = [FighterState.IDLE, FighterState.WALK].includes(this.state);
-    if (!canSummon || this.energy < SUMMON_COST) return null;
-
-    soundManager.playSkill();
-    this.energy -= SUMMON_COST;
-    this.state = FighterState.SUMMON;
-    this.actionTimer = 25; 
-    this.velocity.x = 0;
-
-    const dir = this.facing === 'right' ? 1 : -1;
-    const startX = this.facing === 'right' 
-      ? this.position.x + this.width + 10
-      : this.position.x - 80;
-
-    return {
-        id: Math.random().toString(36).substr(2, 9),
-        ownerId: this.characterId,
-        type: 'clone',
-        x: startX,
-        y: this.position.y,
-        startX: startX,
-        velocity: { x: dir * 9, y: 0 },
-        width: this.width,
-        height: this.height,
-        color: this.color,
-        damage: 12, 
-        facing: dir,
-        createdAt: Date.now()
-    };
-  }
-
   block(isBlocking: boolean) {
     // Block condition: Grounded, not acting
-    if (this.state === FighterState.HURT || this.state === FighterState.DEAD || this.state === FighterState.ATTACK || this.state === FighterState.ULTIMATE || this.state === FighterState.SKILL || this.state === FighterState.SUMMON || this.state === FighterState.DODGE || !this.isGrounded) return;
+    if (this.state === FighterState.HURT || this.state === FighterState.DEAD || this.state === FighterState.ATTACK || this.state === FighterState.ULTIMATE || this.state === FighterState.SKILL || this.state === FighterState.DODGE || !this.isGrounded) return;
     
     if (isBlocking) {
         // Removed: if (this.energy > 0)

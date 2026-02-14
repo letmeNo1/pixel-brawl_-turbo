@@ -142,13 +142,8 @@ const App: React.FC = () => {
     // AI decides to block if player is attacking close by
     if (player.isAttacking && dist < 120 && cpu.isGrounded && Math.random() < 0.6) {
         cpu.block(true);
-        // User requested inverted block facing. 
-        // Previously: cpu.facing = cpuForward
-        // Now: cpu.facing = cpuBack (faces away? or corrects to face enemy if assets inverted?)
-        // Assuming user wants opposite of previous logic.
-        // Previous logic: cpuForward ('right' if cpu is left of player).
-        // New logic: cpuBack ('left' if cpu is left of player).
-        cpu.facing = cpuBack as 'right' | 'left'; 
+        // Face towards enemy
+        cpu.facing = cpuForward as 'right' | 'left'; 
         return;
     } else {
         cpu.block(false);
@@ -159,7 +154,7 @@ const App: React.FC = () => {
         cpu.triggerSkill(); // No return, internally queued
     }
 
-    if (![FighterState.HURT, FighterState.BLOCK, FighterState.SKILL, FighterState.SUMMON].includes(cpu.state)) {
+    if (![FighterState.HURT, FighterState.BLOCK, FighterState.SKILL].includes(cpu.state)) {
         cpu.velocity.x = 0;
         if (dist > 150) {
             // Walk towards
@@ -175,7 +170,7 @@ const App: React.FC = () => {
         }
     }
     
-    if (Math.random() < 0.01 && cpu.isGrounded && ![FighterState.HURT, FighterState.BLOCK, FighterState.SKILL, FighterState.SUMMON].includes(cpu.state)) {
+    if (Math.random() < 0.01 && cpu.isGrounded && ![FighterState.HURT, FighterState.BLOCK, FighterState.SKILL].includes(cpu.state)) {
       cpu.attemptJump();
     }
   };
@@ -260,7 +255,7 @@ const App: React.FC = () => {
       if (!fightersRef.current) return;
       const { p1, p2 } = fightersRef.current;
 
-      const lockedStates = [FighterState.HURT, FighterState.DEAD, FighterState.SKILL, FighterState.SUMMON, FighterState.ULTIMATE];
+      const lockedStates = [FighterState.HURT, FighterState.DEAD, FighterState.SKILL, FighterState.ULTIMATE];
 
       // P1 Input
       if (!lockedStates.includes(p1.state)) {
@@ -273,9 +268,8 @@ const App: React.FC = () => {
 
           // Auto-turn when blocking
           if (p1.state === FighterState.BLOCK) {
-              // INVERTED: User requested opposite direction.
-              // If P2 is Left of P1. P1 faces Right.
-              p1.facing = p2.position.x < p1.position.x ? 'right' : 'left';
+              // Face towards enemy
+              p1.facing = p2.position.x < p1.position.x ? 'left' : 'right';
           }
 
           // No movement while blocking
@@ -298,8 +292,8 @@ const App: React.FC = () => {
 
             // Auto-turn when blocking
             if (p2.state === FighterState.BLOCK) {
-                // INVERTED: User requested opposite direction.
-                p2.facing = p1.position.x < p2.position.x ? 'right' : 'left';
+                // Face towards enemy
+                p2.facing = p1.position.x < p2.position.x ? 'left' : 'right';
             }
 
             if (p2.state !== FighterState.BLOCK) {
@@ -484,10 +478,6 @@ const App: React.FC = () => {
       if (key === P1_KEYS.SKILL_RANGED) { 
          p1.triggerSkill(); // Internal queue
       }
-      if (key === P1_KEYS.SKILL2) { // Keeping legacy name for now
-        const proj = p1.triggerSummon();
-        if (proj) projectilesRef.current.push(proj);
-      }
 
       // P2
       if (mode === GameMode.PVP) {
@@ -498,10 +488,6 @@ const App: React.FC = () => {
         if (key === P2_KEYS.TELEPORT) p2.teleport();
         if (key === P2_KEYS.SKILL_RANGED) { 
             p2.triggerSkill();
-        }
-        if (key === P2_KEYS.SKILL2) { // Legacy key mapping
-            const proj = p2.triggerSummon();
-            if (proj) projectilesRef.current.push(proj);
         }
       }
     };

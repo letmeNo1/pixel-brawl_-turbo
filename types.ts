@@ -18,8 +18,7 @@ export enum FighterState {
   HURT = 'HURT',
   DEAD = 'DEAD',
   CHARGING = 'CHARGING', // Keeping for legacy, though not used in new controls
-  BLOCK = 'BLOCK',
-  SUMMON = 'SUMMON'
+  BLOCK = 'BLOCK'
 }
 
 export interface Position {
