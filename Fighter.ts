@@ -7,10 +7,7 @@ import {
   DODGE_DURATION, DODGE_COOLDOWN, JUGGLE_DAMAGE_CAP, WAKEUP_INVULNERABILITY
 } from './constants';
 import { soundManager } from './SoundManager';
-
-interface SpriteData {
-  images: HTMLImageElement[];
-}
+import { FighterRenderer } from './FighterRenderer';
 
 export class Fighter {
   position: Position;
@@ -48,12 +45,14 @@ export class Fighter {
   characterId: string;
   assetTimestamp: number;
   
-  // Animation properties
-  sprites: Record<string, SpriteData> = {};
+  // Animation properties (Managed by Renderer but State stored here)
   currentFrame: number = 0;
   framesElapsed: number = 0;
   framesHold: number = 20; // Increased base frame hold to slow down animations
   
+  // Renderer
+  renderer: FighterRenderer;
+
   // Sprite Cropping / Centering Config
   spriteCrop: { bl: Position, tr: Position } | null = null;
   
@@ -94,7 +93,9 @@ export class Fighter {
     this.facing = facing;
     this.characterId = characterId;
     this.assetTimestamp = assetTimestamp;
-    this.loadSprites();
+    
+    // Init Renderer
+    this.renderer = new FighterRenderer(characterId, assetTimestamp);
   }
 
   // Set the actual character content boundaries within the image to auto-center
@@ -105,282 +106,8 @@ export class Fighter {
       };
   }
 
-  loadSprites() {
-    // Map new states to existing assets for now (fallback logic used in draw)
-    const mappings: Record<string, number> = {
-      'idle': 1,
-      'run': 5,
-      'jump': 1,
-      'attack': 4, // 4 frames for combo (Hit 1: 1-2, Hit 2: 3-4)
-      'hurt': 1, 
-      'block': 1, 
-      'skill': 2, // Changed to 2 frames
-      'ultimate': 1,
-      'crouch': 1 // Will need asset or fallback
-    };
-
-    console.log(`[Fighter] Init loadSprites for: ${this.characterId}`);
-
-    Object.entries(mappings).forEach(([key, count]) => {
-      const images: HTMLImageElement[] = [];
-      if (count > 1) {
-        for (let i = 1; i <= count; i++) {
-            const img = new Image();
-            const src = `/assets/characters/${this.characterId}/${key}${i}.png?v=${this.assetTimestamp}`;
-            img.src = src;
-            images.push(img);
-        }
-      } else {
-        const img = new Image();
-        const src = `/assets/characters/${this.characterId}/${key}.png?v=${this.assetTimestamp}`;
-        img.src = src;
-        images.push(img);
-      }
-      this.sprites[key] = { images };
-    });
-  }
-
   draw(ctx: CanvasRenderingContext2D, debug: boolean = false) {
-    ctx.save();
-    
-    const centerX = this.position.x + this.width / 2;
-    const centerY = this.position.y + this.height / 2;
-
-    // Apply shake effect if hurt
-    let shakeX = 0;
-    let shakeY = 0;
-    if (this.state === FighterState.HURT) {
-      shakeX = (Math.random() - 0.5) * 10;
-      shakeY = (Math.random() - 0.5) * 10;
-    }
-
-    ctx.translate(centerX + shakeX, centerY + shakeY);
-
-    if (this.facing === 'left') {
-        ctx.scale(-1, 1);
-    }
-
-    // Visual Feedback for Invulnerability (Wakeup/Dodge)
-    if (this.invulnerabilityTimer > 0 || this.state === FighterState.DODGE) {
-        ctx.globalAlpha = 0.5 + Math.sin(Date.now() / 50) * 0.3;
-    }
-
-    if (this.state === FighterState.BLOCK) {
-        // Change color based on accumulation
-        const guardStress = Math.min(1, this.accumulatedBlockDamage / 200);
-        ctx.fillStyle = `rgba(${59 + (200 * guardStress)}, ${130 - (100 * guardStress)}, 246, 0.3)`; 
-        
-        // Lower the block shield for crouch height
-        const blockH = this.height * 0.7; 
-        const blockY = -this.height/2 + (this.height * 0.3);
-        ctx.fillRect(-this.width/2 - 10, blockY - 10, this.width + 20, blockH + 20);
-        ctx.strokeStyle = '#60a5fa';
-        ctx.lineWidth = 3;
-        ctx.strokeRect(-this.width/2 - 10, blockY - 10, this.width + 20, blockH + 20);
-    }
-
-    if (this.state === FighterState.ULTIMATE) {
-      ctx.shadowBlur = 30 + (Math.random() * 20);
-      ctx.shadowColor = this.color;
-    }
-    
-    // Skill charging visual
-    if (this.skillStartup > 0 && (this.state === FighterState.SKILL || this.state === FighterState.ULTIMATE)) {
-        ctx.shadowBlur = 10 + (45 - this.skillStartup); // Increasing glow
-        ctx.shadowColor = this.state === FighterState.ULTIMATE ? '#ef4444' : '#fbbf24';
-    }
-
-    let spriteKey = 'idle';
-    let currentFramesHold = 20; // Default slower speed
-
-    switch (this.state) {
-        case FighterState.WALK: spriteKey = 'run'; currentFramesHold = 15; break;
-        case FighterState.JUMP: spriteKey = 'jump'; break;
-        case FighterState.ATTACK: spriteKey = 'attack'; currentFramesHold = 8; break; // Fast attack animation
-        case FighterState.ULTIMATE: spriteKey = 'ultimate'; currentFramesHold = 18; break;
-        case FighterState.HURT: spriteKey = 'hurt'; break;
-        case FighterState.DEAD: spriteKey = 'hurt'; break;
-        case FighterState.BLOCK: spriteKey = 'crouch'; break; // Use crouch sprite for block
-        case FighterState.SKILL: spriteKey = 'skill'; currentFramesHold = 20; break;
-        case FighterState.CROUCH: spriteKey = 'crouch'; break;
-        case FighterState.DODGE: spriteKey = 'run'; break; // Reuse run for dodge visual
-        default: spriteKey = 'idle';
-    }
-
-    let spriteData = this.sprites[spriteKey];
-    
-    // Fallbacks
-    let isCrouchFallback = false;
-    
-    if (spriteKey === 'block' && this.isMissing(spriteData)) spriteData = this.sprites['idle'];
-    if (spriteKey === 'skill' && this.isMissing(spriteData)) spriteData = this.sprites['attack'];
-    if (spriteKey === 'crouch' && this.isMissing(spriteData)) {
-        spriteData = this.sprites['idle']; // Fallback crouch
-        isCrouchFallback = true;
-    }
-
-    const frames = spriteData ? spriteData.images : [];
-    const totalFrames = frames.length;
-
-    if (totalFrames > 1) {
-        this.framesElapsed++;
-
-        if (this.state === FighterState.ATTACK) {
-             // Custom Attack Animation Logic
-             if (this.framesElapsed % currentFramesHold === 0) {
-                 if (this.attackComboStep === 1) {
-                     // Combo 1: Frames 0 -> 1
-                     if (this.currentFrame < 1) {
-                         this.currentFrame++;
-                     }
-                 } else if (this.attackComboStep === 2) {
-                     // Combo 2: Frames 2 -> 3
-                     if (this.currentFrame < 3) {
-                         this.currentFrame++;
-                     }
-                 }
-             }
-        } else {
-             // Standard cycling
-             if (this.framesElapsed % currentFramesHold === 0) {
-                this.currentFrame = (this.currentFrame + 1) % totalFrames;
-            }
-        }
-    } else {
-        this.currentFrame = 0;
-    }
-
-    const currentImage = frames[this.currentFrame % totalFrames]; // Safety mod
-    const isSpriteLoaded = currentImage && currentImage.complete && currentImage.naturalWidth > 0;
-
-    if (isSpriteLoaded) {
-        let drawX = -this.width / 2;
-        let drawY = -this.height / 2;
-        let drawW = this.width;
-        let drawH = this.height;
-
-        // --- SMART CROPPING LOGIC ---
-        if (this.spriteCrop) {
-             const { bl, tr } = this.spriteCrop;
-             // Width/Height of the character content in the source image
-             const contentW = Math.abs(tr.x - bl.x) || 1; 
-             const contentH = Math.abs(bl.y - tr.y) || 1;
-             
-             // Calculate center of the content in the source image
-             const contentCX = (bl.x + tr.x) / 2;
-             const contentCY = (bl.y + tr.y) / 2;
-
-             // Determine how much we need to scale the content to fit the Hitbox
-             const scaleX = this.width / contentW;
-             const scaleY = this.height / contentH;
-             
-             // The full image must be drawn scaled
-             drawW = currentImage.width * scaleX;
-             drawH = currentImage.height * scaleY;
-             
-             // Shift so that Content Center aligns with (0,0) [Hitbox Center]
-             drawX = -contentCX * scaleX;
-             drawY = -contentCY * scaleY;
-             
-             // Adjust for Crouch (squash effect) only if falling back to idle
-             if ((this.state === FighterState.CROUCH || this.state === FighterState.BLOCK) && isCrouchFallback) {
-                const squashFactor = 0.7;
-                drawH *= squashFactor;
-                drawY += this.height * 0.3; // Visual shift down
-             }
-        } else {
-            // --- LEGACY FALLBACK LOGIC ---
-            // Crouch visual adjustment if reusing idle sprite
-            if ((this.state === FighterState.CROUCH || this.state === FighterState.BLOCK) && isCrouchFallback) {
-                drawH = this.height * 0.7;
-                drawY = -this.height / 2 + (this.height * 0.3);
-            }
-        }
-
-        ctx.drawImage(
-            currentImage,
-            drawX, 
-            drawY, 
-            drawW, 
-            drawH 
-        );
-        
-    } else {
-        // Fallback rectangle
-        ctx.fillStyle = this.state === FighterState.HURT ? '#fff' : this.color;
-        let h = this.height;
-        let y = -this.height / 2;
-        if (this.state === FighterState.CROUCH || this.state === FighterState.BLOCK) { h *= 0.6; y += this.height * 0.4; }
-        ctx.fillRect(-this.width / 2, y, this.width, h);
-    }
-
-    // NEW: Red Arc Damage Visual
-    if (this.state === FighterState.HURT && this.hitMarker) {
-        ctx.save();
-        // Since we are already translated to center + shake, we move by hitMarker offset
-        // hitMarker coordinates are relative to the fighter's center (0,0 here)
-        ctx.translate(this.hitMarker.x, this.hitMarker.y);
-        ctx.rotate(this.hitMarker.rotation);
-        ctx.scale(this.hitMarker.scale, this.hitMarker.scale);
-
-        ctx.beginPath();
-        // Draw a simple arc/slash
-        ctx.arc(0, 0, 30, Math.PI * 0.2, Math.PI * 0.8);
-        
-        ctx.lineCap = 'round';
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = '#ff0000';
-        ctx.strokeStyle = '#ef4444'; // Bright Red
-        ctx.lineWidth = 6;
-        ctx.stroke();
-
-        ctx.restore();
-    }
-
-    ctx.restore(); 
-
-    if (this.state === FighterState.BLOCK) {
-        ctx.save();
-        ctx.translate(centerX + shakeX, centerY + shakeY); // Match fighter center
-        if (this.facing === 'left') {
-            // No flipping context for text to keep it readable, but we need to know we are centered
-            // If we wanted to keep the style, we just draw at 0,0 (center)
-        }
-        
-        ctx.fillStyle = '#60a5fa';
-        ctx.font = '10px "Press Start 2P"';
-        ctx.textAlign = 'center';
-        // Draw text above fighter. Local 0,0 is center. Top is -height/2.
-        ctx.fillText('BLOCK', 0, -this.height/2 - 10);
-        ctx.restore();
-    }
-
-    // DEBUG: Draw Hitboxes and Hurtboxes
-    if (debug) {
-        ctx.save();
-        // 1. HURTBOX (Body physics box) - RED
-        ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(this.position.x, this.position.y, this.width, this.height);
-        
-        // 2. HITBOX (Active Attack) - YELLOW
-        if ((this.state === FighterState.ATTACK) && this.hitbox.width > 0) {
-            ctx.strokeStyle = 'rgba(255, 255, 0, 0.8)';
-            ctx.lineWidth = 2;
-            
-            // Calculate world space hitbox based on facing
-            const hbX = this.facing === 'right' 
-                ? this.position.x + this.hitbox.offset.x 
-                : this.position.x - this.hitbox.width + (this.width - this.hitbox.offset.x);
-            
-            ctx.strokeRect(hbX, this.position.y + this.hitbox.offset.y, this.hitbox.width, this.hitbox.height);
-        }
-        ctx.restore();
-    }
-  }
-  
-  private isMissing(data: SpriteData | undefined) {
-      return !data || data.images.length === 0 || !data.images[0].complete;
+    this.renderer.draw(ctx, this, debug);
   }
 
   update(platforms: Platform[]) {
