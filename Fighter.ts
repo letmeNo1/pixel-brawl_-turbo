@@ -180,14 +180,14 @@ export class Fighter {
     }
 
     if (this.state === FighterState.ULTIMATE) {
-      ctx.shadowBlur = 30;
+      ctx.shadowBlur = 30 + (Math.random() * 20);
       ctx.shadowColor = this.color;
     }
     
     // Skill charging visual
-    if (this.skillStartup > 0 && this.state === FighterState.SKILL) {
+    if (this.skillStartup > 0 && (this.state === FighterState.SKILL || this.state === FighterState.ULTIMATE)) {
         ctx.shadowBlur = 10 + (45 - this.skillStartup); // Increasing glow
-        ctx.shadowColor = '#fbbf24';
+        ctx.shadowColor = this.state === FighterState.ULTIMATE ? '#ef4444' : '#fbbf24';
     }
 
     let spriteKey = 'idle';
@@ -341,11 +341,17 @@ export class Fighter {
 
     if (this.state === FighterState.BLOCK) {
         ctx.save();
+        ctx.translate(centerX + shakeX, centerY + shakeY); // Match fighter center
+        if (this.facing === 'left') {
+            // No flipping context for text to keep it readable, but we need to know we are centered
+            // If we wanted to keep the style, we just draw at 0,0 (center)
+        }
+        
         ctx.fillStyle = '#60a5fa';
         ctx.font = '10px "Press Start 2P"';
         ctx.textAlign = 'center';
-        // Lower text slightly
-        ctx.fillText('BLOCK', this.position.x + this.width/2, this.position.y - 10);
+        // Draw text above fighter. Local 0,0 is center. Top is -height/2.
+        ctx.fillText('BLOCK', 0, -this.height/2 - 10);
         ctx.restore();
     }
 
@@ -358,7 +364,7 @@ export class Fighter {
         ctx.strokeRect(this.position.x, this.position.y, this.width, this.height);
         
         // 2. HITBOX (Active Attack) - YELLOW
-        if ((this.state === FighterState.ATTACK || this.state === FighterState.ULTIMATE) && this.hitbox.width > 0) {
+        if ((this.state === FighterState.ATTACK) && this.hitbox.width > 0) {
             ctx.strokeStyle = 'rgba(255, 255, 0, 0.8)';
             ctx.lineWidth = 2;
             
@@ -448,12 +454,16 @@ export class Fighter {
     if (this.dodgeCooldown > 0) this.dodgeCooldown--;
     if (this.invulnerabilityTimer > 0) this.invulnerabilityTimer--;
 
-    // Skill Startup Handling
+    // Skill & Ultimate Startup Handling
     if (this.skillStartup > 0) {
         this.skillStartup--;
         if (this.skillStartup === 0) {
             // Fire projectiles when startup ends
-            this.fireRangedSkill();
+            if (this.state === FighterState.SKILL) {
+                this.fireRangedSkill();
+            } else if (this.state === FighterState.ULTIMATE) {
+                this.fireUltimateBeam();
+            }
         }
     }
 
@@ -637,8 +647,6 @@ export class Fighter {
       });
 
       this.newProjectiles.push(createProj(0, 0));
-      // Add slight delay to second projectile locally or just fire both?
-      // Let's fire both but spaced out in space
       this.newProjectiles.push(createProj(0, -90));
   }
 
@@ -647,7 +655,6 @@ export class Fighter {
     if (this.state === FighterState.HURT || this.state === FighterState.DEAD || this.state === FighterState.ATTACK || this.state === FighterState.ULTIMATE || this.state === FighterState.SKILL || this.state === FighterState.DODGE || !this.isGrounded) return;
     
     if (isBlocking) {
-        // Removed: if (this.energy > 0)
         this.state = FighterState.BLOCK;
         this.velocity.x = 0; 
     } else {
@@ -672,10 +679,36 @@ export class Fighter {
     if (!canUlt || this.energy < 100) return; // Must have 100% (cost 100)
 
     this.energy -= 100; // Deduct cost
-    this.isAttacking = true;
     this.state = FighterState.ULTIMATE;
-    this.actionTimer = 50; 
-    this.hitbox = { offset: { x: -60, y: -60 }, width: 220, height: 220 };
+    this.actionTimer = 60; // Longer lock for beam firing
+    this.velocity.x = 0;
+    this.skillStartup = 20; // Short startup before firing
+    this.hitbox = { offset: { x: 0, y: 0 }, width: 0, height: 0 }; // No melee hitbox
+  }
+
+  private fireUltimateBeam() {
+      soundManager.playUltimate();
+      const dir = this.facing === 'right' ? 1 : -1;
+      // Start nicely in front of the character (150px out + half width offset)
+      const offset = 200; 
+      const startX = this.position.x + (this.width / 2) + (dir * offset); 
+      
+      const beam: Projectile = {
+          id: Math.random().toString(36),
+          ownerId: this.characterId,
+          type: 'beam',
+          x: startX,
+          y: this.position.y + this.height/2, // Center Y
+          startX: startX,
+          velocity: { x: dir * 25, y: 0 }, // Very fast
+          width: 400, // Longer beam
+          height: 80, // Thick
+          color: this.color === '#3b82f6' ? '#93c5fd' : '#fca5a5',
+          damage: 35, // High damage
+          facing: dir,
+          createdAt: Date.now()
+      };
+      this.newProjectiles.push(beam);
   }
 
   gainEnergy(amount: number) {
@@ -741,8 +774,9 @@ export class Fighter {
         }
         
         // Interrupt Skill Startup
-        if (this.state === FighterState.SKILL) {
+        if (this.state === FighterState.SKILL || this.state === FighterState.ULTIMATE) {
             this.skillStartup = 0;
+            this.actionTimer = 0; // Cancel animation if hit during startup
         }
 
         this.state = FighterState.HURT;

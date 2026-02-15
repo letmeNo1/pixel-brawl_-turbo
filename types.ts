@@ -3,6 +3,7 @@ export enum GameMode {
   MENU = 'MENU',
   PVP = 'PVP',
   PVE = 'PVE',
+  ONLINE = 'ONLINE',
   GAMEOVER = 'GAMEOVER'
 }
 
@@ -52,7 +53,7 @@ export interface Platform {
 export interface Projectile {
   id: string;
   ownerId: string;
-  type: 'energy' | 'clone'; 
+  type: 'energy' | 'clone' | 'beam'; 
   x: number;
   y: number;
   startX: number; 
