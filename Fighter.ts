@@ -4,9 +4,11 @@ import {
   GRAVITY, GROUND_Y, FIGHTER_WIDTH, FIGHTER_HEIGHT, WORLD_WIDTH,
   MAX_ENERGY, ULT_COST, SKILL_COST,
   ENERGY_GAIN_HIT, ENERGY_GAIN_TAKE_HIT, ENERGY_GAIN_BLOCK, BLOCK_DRAIN_RATE,
-  DODGE_DURATION, DODGE_COOLDOWN, JUGGLE_DAMAGE_CAP, WAKEUP_INVULNERABILITY
+  DODGE_DURATION, DODGE_COOLDOWN, JUGGLE_DAMAGE_CAP, WAKEUP_INVULNERABILITY,
+  CHARACTER_ANIMATIONS
 } from './constants';
 import { soundManager } from './SoundManager';
+import { AssetManager } from './AssetManager';
 
 interface SpriteData {
   images: HTMLImageElement[];
@@ -66,6 +68,7 @@ export class Fighter {
   hurtTimer: number = 0;
   dodgeTimer: number = 0;
   dodgeCooldown: number = 0;
+  attackCooldown: number = 0; // New: Cooldown between attacks
   blockTimer: number = 0; // Keeping for legacy reference or future use
   invulnerabilityTimer: number = 0; // Wakeup protection
   
@@ -106,34 +109,29 @@ export class Fighter {
   }
 
   loadSprites() {
-    // Map new states to existing assets for now (fallback logic used in draw)
-    const mappings: Record<string, number> = {
-      'idle': 1,
-      'run': 5,
-      'jump': 1,
-      'attack': 4, // 4 frames for combo (Hit 1: 1-2, Hit 2: 3-4)
-      'hurt': 1, 
-      'block': 1, 
-      'skill': 2, // Changed to 2 frames
-      'ultimate': 1,
-      'crouch': 1 // Will need asset or fallback
-    };
-
     console.log(`[Fighter] Init loadSprites for: ${this.characterId}`);
 
-    Object.entries(mappings).forEach(([key, count]) => {
+    Object.entries(CHARACTER_ANIMATIONS).forEach(([key, count]) => {
       const images: HTMLImageElement[] = [];
       if (count > 1) {
         for (let i = 1; i <= count; i++) {
-            const img = new Image();
-            const src = `/assets/characters/${this.characterId}/${key}${i}.png?v=${this.assetTimestamp}`;
-            img.src = src;
+            const path = `/assets/characters/${this.characterId}/${key}${i}.png?v=${this.assetTimestamp}`;
+            // Try getting from AssetManager cache first
+            let img = AssetManager.getImage(path);
+            if (!img) {
+                // Fallback to loading directly if not in cache (shouldn't happen with preload)
+                img = new Image();
+                img.src = path;
+            }
             images.push(img);
         }
       } else {
-        const img = new Image();
-        const src = `/assets/characters/${this.characterId}/${key}.png?v=${this.assetTimestamp}`;
-        img.src = src;
+        const path = `/assets/characters/${this.characterId}/${key}.png?v=${this.assetTimestamp}`;
+        let img = AssetManager.getImage(path);
+        if (!img) {
+            img = new Image();
+            img.src = path;
+        }
         images.push(img);
       }
       this.sprites[key] = { images };
@@ -447,6 +445,7 @@ export class Fighter {
     if (this.hurtTimer > 0) this.hurtTimer--;
     if (this.dodgeCooldown > 0) this.dodgeCooldown--;
     if (this.invulnerabilityTimer > 0) this.invulnerabilityTimer--;
+    if (this.attackCooldown > 0) this.attackCooldown--;
 
     // Skill Startup Handling
     if (this.skillStartup > 0) {
@@ -567,9 +566,13 @@ export class Fighter {
   }
 
   attack() {
-    const allowedStates = [FighterState.IDLE, FighterState.WALK, FighterState.JUMP, FighterState.CROUCH];
-    // Allow chaining if already attacking and in step 1, provided the animation hasn't just ended
+    // Check chain condition first
     const canChain = this.state === FighterState.ATTACK && this.attackComboStep === 1 && this.actionTimer > 0;
+    
+    // Block if cooldown active AND we cannot chain
+    if (!canChain && this.attackCooldown > 0) return;
+
+    const allowedStates = [FighterState.IDLE, FighterState.WALK, FighterState.JUMP, FighterState.CROUCH];
     
     if (allowedStates.includes(this.state)) {
         this.performAttack(1);
@@ -590,8 +593,9 @@ export class Fighter {
       this.currentFrame = step === 1 ? 0 : 2;
       this.framesElapsed = 0;
       
-      this.actionTimer = 25; // Duration window for the attack
-      this.hitbox = { offset: { x: 50, y: 20 }, width: 80, height: 40 };
+      this.actionTimer = 18; // Shortened from 25 for faster recovery
+      this.attackCooldown = 30; // Add delay before next attack can start
+      this.hitbox = { offset: { x: 40, y: 20 }, width: 50, height: 40 }; // Narrower Hitbox
       
       // Reset isAttacking to true to allow damage re-check in main loop if it was cleared by a previous hit
       this.isAttacking = true;
@@ -607,9 +611,9 @@ export class Fighter {
       if (!canSkill) return;
       
       this.state = FighterState.SKILL;
-      // Total animation lock 90 frames, startup 45 frames
-      this.actionTimer = 90; 
-      this.skillStartup = 45; 
+      // Total animation lock 50 frames, startup 25 frames (Faster)
+      this.actionTimer = 50; 
+      this.skillStartup = 25; 
       this.velocity.x = 0; 
   }
 
@@ -668,14 +672,50 @@ export class Fighter {
   }
 
   ultimate() {
+    // Only allow ult if in neutral states
     const canUlt = [FighterState.IDLE, FighterState.WALK, FighterState.JUMP].includes(this.state);
+    
     if (!canUlt || this.energy < 100) return; // Must have 100% (cost 100)
 
     this.energy -= 100; // Deduct cost
-    this.isAttacking = true;
+    
+    // Set state
     this.state = FighterState.ULTIMATE;
-    this.actionTimer = 50; 
-    this.hitbox = { offset: { x: -60, y: -60 }, width: 220, height: 220 };
+    this.actionTimer = 60; // Lock for 1 second while beam fires
+    this.velocity.x = 0; // Stop movement
+    this.velocity.y = 0; // Hover
+    
+    // Play sound
+    soundManager.playUltimate();
+
+    // Create BEAM Projectile
+    const dir = this.facing === 'right' ? 1 : -1;
+    const beamLength = 2000; // Extremely long to cover screen
+    const beamHeight = 100;
+    
+    // Center X of beam relative to player
+    // Start slightly in front of player
+    const startOffset = 40;
+    const originX = this.position.x + (this.width / 2) + (dir * startOffset);
+    // Center of the beam rect
+    const centerX = originX + (dir * (beamLength / 2));
+    
+    this.newProjectiles.push({
+        id: Math.random().toString(36).substr(2, 9),
+        ownerId: this.characterId,
+        type: 'beam',
+        x: centerX,
+        y: this.position.y + (this.height / 2) - 10, // Adjust height to chest level
+        startX: this.position.x,
+        velocity: { x: 0, y: 0 }, // Stationary beam
+        width: beamLength,
+        height: beamHeight,
+        color: this.color, 
+        damage: 25, 
+        facing: dir,
+        createdAt: Date.now(),
+        hitTargets: [] // Initialize empty list of hit targets for this beam
+    });
   }
 
   gainEnergy(amount: number) {

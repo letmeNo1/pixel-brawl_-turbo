@@ -32,6 +32,19 @@ export const DODGE_COOLDOWN = 180; // 3s @ 60fps
 export const JUGGLE_DAMAGE_CAP = 30; // Damage threshold to force knockdown
 export const WAKEUP_INVULNERABILITY = 120; // 2s
 
+// Animation Frame Configuration
+export const CHARACTER_ANIMATIONS: Record<string, number> = {
+  'idle': 1,
+  'run': 5,
+  'jump': 1,
+  'attack': 4, // 4 frames for combo (Hit 1: 1-2, Hit 2: 3-4)
+  'hurt': 1, 
+  'block': 1, 
+  'skill': 2, // Changed to 2 frames
+  'ultimate': 1,
+  'crouch': 1 
+};
+
 // --- SPRITE CONFIGURATION ---
 // Configure the "hitbox" area within your sprite sheet to remove transparent whitespace.
 // Coordinates are based on the original image pixels. (0,0) is Top-Left.
