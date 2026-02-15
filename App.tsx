@@ -4,11 +4,18 @@ import { GameMode } from './types';
 import { Menu } from './components/Menu';
 import { Game } from './components/Game';
 import { LoginModal } from './components/LoginModal';
+import { LoadingScreen } from './components/LoadingScreen';
 import { matchmakingService } from './services/matchmaking';
+import { soundManager } from './SoundManager';
+import { SPRITE_MAPPINGS } from './FighterRenderer';
 
 const App: React.FC = () => {
   const [mode, setMode] = useState<GameMode>(GameMode.MENU);
   
+  // Loading State
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+
   // Auth & Matchmaking State
   const [username, setUsername] = useState<string>("PLAYER 1");
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
@@ -20,6 +27,9 @@ const App: React.FC = () => {
   // Mobile State
   const [isMobile, setIsMobile] = useState(false);
   const [isLandscape, setIsLandscape] = useState(true);
+
+  // Asset Versioning
+  const [assetVersion] = useState<number>(Date.now());
 
   // Mobile Detection & Orientation
   useEffect(() => {
@@ -33,6 +43,68 @@ const App: React.FC = () => {
       window.addEventListener('resize', checkMobile);
       return () => window.removeEventListener('resize', checkMobile);
   }, []);
+
+  // Asset Preloading
+  useEffect(() => {
+    const preloadAssets = async () => {
+      const CHARACTERS = ['user1', 'user2']; // Characters to load
+      const imagesToLoad: string[] = [];
+
+      // Generate Image List
+      CHARACTERS.forEach(char => {
+          Object.entries(SPRITE_MAPPINGS).forEach(([state, count]) => {
+              if (count > 1) {
+                  for(let i=1; i<=count; i++) {
+                      imagesToLoad.push(`/assets/characters/${char}/${state}${i}.png?v=${assetVersion}`);
+                  }
+              } else {
+                  imagesToLoad.push(`/assets/characters/${char}/${state}.png?v=${assetVersion}`);
+              }
+          });
+      });
+
+      let loadedCount = 0;
+      const totalItems = imagesToLoad.length + 1; // +1 for Sound Init
+
+      const updateProgress = () => {
+          loadedCount++;
+          setLoadingProgress(Math.min(100, Math.floor((loadedCount / totalItems) * 100)));
+      };
+
+      try {
+          // 1. Load Sounds
+          await soundManager.loadAll();
+          updateProgress();
+
+          // 2. Load Images (Parallel)
+          const imagePromises = imagesToLoad.map(src => {
+              return new Promise<void>((resolve) => {
+                  const img = new Image();
+                  img.src = src;
+                  img.onload = () => { updateProgress(); resolve(); };
+                  img.onerror = () => { 
+                      console.warn(`Failed to preload: ${src}`); 
+                      updateProgress(); 
+                      resolve(); 
+                  };
+              });
+          });
+
+          await Promise.all(imagePromises);
+          
+          // Small delay to show 100%
+          setTimeout(() => {
+            setIsLoading(false);
+          }, 500);
+
+      } catch (e) {
+          console.error("Asset loading failed", e);
+          setIsLoading(false); // Force entry on error
+      }
+    };
+
+    preloadAssets();
+  }, [assetVersion]);
 
   const handleLogin = (name: string) => {
     setUsername(name);
@@ -78,6 +150,10 @@ const App: React.FC = () => {
       setIsSearching(false);
       await matchmakingService.cancelQueue(username);
   };
+
+  if (isLoading) {
+      return <LoadingScreen progress={loadingProgress} />;
+  }
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-black text-white overflow-hidden relative">

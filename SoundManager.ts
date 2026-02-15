@@ -18,18 +18,21 @@ export class SoundManager {
   };
 
   constructor() {
-    this.init();
+    // Constructor no longer auto-initializes to allow controlled loading in App
   }
 
-  private async init() {
+  public async loadAll(): Promise<void> {
+    if (this.ctx) return; // Already initialized
+
     try {
         const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
         this.ctx = new AudioContext();
         
-        // Preload all sounds
-        for (const [key, path] of Object.entries(this.soundPaths)) {
-            this.loadSound(key, path);
-        }
+        const loadPromises = Object.entries(this.soundPaths).map(([key, path]) => 
+            this.loadSound(key, path)
+        );
+
+        await Promise.all(loadPromises);
     } catch (e) {
         console.warn('Web Audio API not supported', e);
     }
@@ -56,6 +59,17 @@ export class SoundManager {
     }
   }
 
+  playAttack() { this.play('attack', 0.5); }
+  playHit() { this.play('hit', 0.7); }
+  playHeavyHit() { this.play('heavy_hit', 0.8); }
+  playRangedHit() { this.play('ranged_hit', 0.7); }
+
+  playBlock() { this.play('block', 0.6); }
+  playGuardBreak() { this.play('guard_break', 0.8); } 
+  playSkill() { this.play('skill', 0.6); } 
+  playJump() { this.play('jump', 0.3); }
+  playUltimate() { this.play('ultimate', 1.0); }
+
   private play(key: string, volume: number = 0.5) {
     if (this.isMuted || !this.ctx) return;
 
@@ -78,18 +92,6 @@ export class SoundManager {
     
     source.start(0);
   }
-
-  // Exposed methods used by Fighter.ts
-  playAttack() { this.play('attack', 0.5); }
-  playHit() { this.play('hit', 0.7); }
-  playHeavyHit() { this.play('heavy_hit', 0.8); }
-  playRangedHit() { this.play('ranged_hit', 0.7); }
-
-  playBlock() { this.play('block', 0.6); }
-  playGuardBreak() { this.play('guard_break', 0.8); } // New
-  playSkill() { this.play('skill', 0.6); } // For Throw/Projectile
-  playJump() { this.play('jump', 0.3); }
-  playUltimate() { this.play('ultimate', 1.0); }
 }
 
 export const soundManager = new SoundManager();

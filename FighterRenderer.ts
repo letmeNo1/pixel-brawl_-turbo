@@ -6,6 +6,18 @@ interface SpriteData {
   images: HTMLImageElement[];
 }
 
+export const SPRITE_MAPPINGS: Record<string, number> = {
+  'idle': 1,
+  'run': 5,
+  'jump': 1,
+  'attack': 4, // 4 frames for combo (Hit 1: 1-2, Hit 2: 3-4)
+  'hurt': 1, 
+  'block': 1, 
+  'skill': 2, 
+  'ultimate': 1,
+  'crouch': 1 
+};
+
 export class FighterRenderer {
   sprites: Record<string, SpriteData> = {};
   characterId: string;
@@ -18,22 +30,9 @@ export class FighterRenderer {
   }
 
   private loadSprites() {
-    // Map states to asset counts
-    const mappings: Record<string, number> = {
-      'idle': 1,
-      'run': 5,
-      'jump': 1,
-      'attack': 4, // 4 frames for combo (Hit 1: 1-2, Hit 2: 3-4)
-      'hurt': 1, 
-      'block': 1, 
-      'skill': 2, 
-      'ultimate': 1,
-      'crouch': 1 
-    };
-
     console.log(`[FighterRenderer] Loading sprites for: ${this.characterId}`);
 
-    Object.entries(mappings).forEach(([key, count]) => {
+    Object.entries(SPRITE_MAPPINGS).forEach(([key, count]) => {
       const images: HTMLImageElement[] = [];
       if (count > 1) {
         for (let i = 1; i <= count; i++) {
