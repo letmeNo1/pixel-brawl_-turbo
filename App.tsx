@@ -151,6 +151,17 @@ const App: React.FC = () => {
       await matchmakingService.cancelQueue(username);
   };
 
+  const toggleFullScreen = () => {
+      const doc = document.documentElement as any;
+      if (!document.fullscreenElement && !(document as any).webkitFullscreenElement) {
+          if (doc.requestFullscreen) {
+              doc.requestFullscreen();
+          } else if (doc.webkitRequestFullscreen) {
+              doc.webkitRequestFullscreen();
+          }
+      }
+  };
+
   if (isLoading) {
       return <LoadingScreen progress={loadingProgress} />;
   }
@@ -162,7 +173,14 @@ const App: React.FC = () => {
           <div className="fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center text-center p-8">
               <div className="text-6xl mb-8 animate-bounce">📱↻</div>
               <h2 className="text-2xl font-bold text-yellow-400 mb-4">ROTATE DEVICE</h2>
-              <p className="text-gray-400">PLEASE USE LANDSCAPE MODE FOR THE BEST EXPERIENCE</p>
+              <p className="text-gray-400 mb-8">PLEASE USE LANDSCAPE MODE FOR THE BEST EXPERIENCE</p>
+              
+              <button 
+                onClick={toggleFullScreen}
+                className="border-2 border-white px-6 py-3 text-sm font-bold tracking-widest hover:bg-white hover:text-black transition-colors"
+              >
+                  [ ENABLE FULLSCREEN ]
+              </button>
           </div>
       )}
 

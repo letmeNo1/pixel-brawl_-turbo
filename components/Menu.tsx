@@ -45,11 +45,36 @@ export const Menu: React.FC<MenuProps> = ({ onStartGame, onLoginClick, isLoggedI
       return Math.round((wins / matches) * 100) + "%";
   };
 
+  const toggleFullScreen = () => {
+      const doc = document.documentElement as any;
+      if (!document.fullscreenElement && !(document as any).webkitFullscreenElement) {
+          if (doc.requestFullscreen) {
+              doc.requestFullscreen();
+          } else if (doc.webkitRequestFullscreen) {
+              doc.webkitRequestFullscreen();
+          }
+      } else {
+          if (document.exitFullscreen) {
+              document.exitFullscreen();
+          } else if ((document as any).webkitExitFullscreen) {
+              (document as any).webkitExitFullscreen();
+          }
+      }
+  };
+
   return (
-    <div className="text-center z-10 flex flex-col gap-8 animate-in fade-in duration-700 w-full max-w-4xl px-4">
-      <h1 className="text-4xl md:text-7xl font-bold mb-4 tracking-tighter text-blue-500 italic drop-shadow-[0_8px_0_rgba(0,0,0,1)]">PIXEL BRAWL</h1>
+    <div className="text-center z-10 flex flex-col gap-4 md:gap-8 animate-in fade-in duration-700 w-full max-w-4xl px-4 h-full max-h-screen overflow-y-auto py-8 touch-pan-y relative">
+      {/* Fullscreen Toggle Button */}
+      <button 
+        onClick={toggleFullScreen}
+        className="absolute top-2 right-2 md:top-4 md:right-4 z-50 bg-gray-900/80 border-2 border-gray-600 text-gray-300 hover:text-white hover:border-white px-2 py-2 text-[10px] md:text-xs font-mono transition-colors pixel-border"
+      >
+        [⛶] SCREEN
+      </button>
+
+      <h1 className="text-3xl md:text-7xl font-bold mb-2 md:mb-4 tracking-tighter text-blue-500 italic drop-shadow-[0_8px_0_rgba(0,0,0,1)] flex-shrink-0">PIXEL BRAWL</h1>
       
-      <div className="flex flex-col md:flex-row justify-between items-center md:items-start w-full md:px-12 gap-8">
+      <div className="flex flex-col md:flex-row justify-between items-center md:items-start w-full md:px-12 gap-8 flex-shrink-0">
          {/* LEFT COLUMN: SERVER INFO */}
          <div className="flex flex-col gap-2 text-center md:text-left w-full md:w-1/4">
              <div className="text-xs text-gray-500 font-bold">SERVER STATUS</div>
@@ -113,7 +138,7 @@ export const Menu: React.FC<MenuProps> = ({ onStartGame, onLoginClick, isLoggedI
          </div>
 
          {/* RIGHT COLUMN: LEADERBOARD */}
-         <div className="hidden md:flex flex-col gap-4 w-1/4 items-end">
+         <div className="flex flex-col gap-4 w-full md:w-1/4 items-center md:items-end pb-8">
             <div className="w-full pixel-border bg-gray-900/80 p-4 min-h-[180px]">
                  <div className="text-xs text-yellow-400 font-bold mb-3 text-center border-b-2 border-gray-700 pb-2 tracking-widest flex justify-between">
                      <span>RANK</span>
@@ -131,7 +156,7 @@ export const Menu: React.FC<MenuProps> = ({ onStartGame, onLoginClick, isLoggedI
                              <div key={idx} className="flex justify-between items-center text-[10px] font-mono group hover:bg-white/5 p-1 transition-colors cursor-default">
                                  <div className="flex gap-2 items-center">
                                      <span className={`${player.rank === 1 ? 'text-yellow-400' : player.rank === 2 ? 'text-gray-300' : player.rank === 3 ? 'text-orange-400' : 'text-gray-600'} font-bold w-4`}>#{player.rank}</span>
-                                     <div className="flex flex-col">
+                                     <div className="flex flex-col text-left">
                                          <span className="text-gray-300 group-hover:text-white transition-colors">{player.name}</span>
                                          <span className="text-[8px] text-gray-600">{player.score.toLocaleString()} PTS</span>
                                      </div>
@@ -143,7 +168,7 @@ export const Menu: React.FC<MenuProps> = ({ onStartGame, onLoginClick, isLoggedI
                  )}
             </div>
             
-            <div className="flex flex-col gap-1 text-right mt-2 opacity-50 hover:opacity-100 transition-opacity">
+            <div className="flex flex-col gap-1 text-center md:text-right mt-2 opacity-50 hover:opacity-100 transition-opacity">
                <div className="text-[10px] text-gray-500 font-bold">VERSION</div>
                <div className="text-gray-400 text-xs">v1.3.1 ONLINE</div>
             </div>
@@ -151,7 +176,7 @@ export const Menu: React.FC<MenuProps> = ({ onStartGame, onLoginClick, isLoggedI
       </div>
       
       {!isMobile && (
-          <div className="mt-8 text-[10px] text-gray-500 leading-relaxed uppercase space-y-2 opacity-80 text-left bg-gray-900/50 p-4 border border-gray-800 mx-auto max-w-2xl">
+          <div className="mt-8 text-[10px] text-gray-500 leading-relaxed uppercase space-y-2 opacity-80 text-left bg-gray-900/50 p-4 border border-gray-800 mx-auto max-w-2xl flex-shrink-0">
             <div className="grid grid-cols-2 gap-8">
                 <div>
                     <strong className="text-blue-400">P1 (WASD)</strong><br/>
